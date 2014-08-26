@@ -1,0 +1,44 @@
+VPATH=%VPATH%
+
+RUSTC ?= rustc
+BUILDDIR := .
+RUSTCFGS := %RUSTCFGS%
+RUSTFLAGS += $(RUSTCFGS)
+INSTALL_DIR := %PREFIX%
+
+OPENSSL_LIB := $(VPATH)/src/lib.rs
+OPENSSL := $(foreach file, \
+	$(shell $(RUSTC) $(RUSTFLAGS) --print-file-name $(OPENSSL_LIB)),$(BUILDDIR)/$(file))
+OPENSSL_TEST := $(BUILDDIR)/$(shell $(RUSTC) --test --print-file-name $(OPENSSL_LIB))
+
+all: $(OPENSSL)
+
+-include $(BUILDDIR)/openssl.d
+-include $(BUILDDIR)/openssl_test.d
+
+.NOTPARALLEL: $(OPENSSL)
+
+$(OPENSSL): $(OPENSSL_LIB)
+	@echo $(RUSTFLAGS)
+	$(RUSTC) $(RUSTFLAGS) --dep-info $(@D)/openssl.d --out-dir $(@D) $<
+
+# skip the checks for servo for now
+check: ;
+
+$(OPENSSL_TEST): $(OPENSSL_LIB)
+	$(RUSTC) $(RUSTFLAGS) --test --dep-info $(@D)/openssl_test.d \
+		--out-dir $(@D) $<
+
+clean:
+	rm -f *.rlib *.so *.d *.dummy
+
+doc: $(OPENSSL)
+	rustdoc $(RUSTCFGS) $(OPENSSL_LIB)
+
+install: $(OPENSSL)
+	install $(OPENSSL) $(INSTALL_DIR)
+
+print-target:
+	@echo $(OPENSSL)
+
+.PHONY: all check clean print-target
