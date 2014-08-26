@@ -4,6 +4,7 @@ RUSTC ?= rustc
 BUILDDIR := .
 RUSTCFGS := %RUSTCFGS%
 RUSTFLAGS += $(RUSTCFGS)
+RUSTDOC_FLAGS ?=
 INSTALL_DIR := %PREFIX%
 
 OPENSSL_LIB := $(VPATH)/src/lib.rs
@@ -33,7 +34,7 @@ clean:
 	rm -f *.rlib *.so *.d *.dummy
 
 doc: $(OPENSSL)
-	rustdoc $(RUSTCFGS) $(OPENSSL_LIB)
+	$(RUSTDOC) $(RUSTDOC_FLAGS) $(RUSTCFGS) $(OPENSSL_LIB)
 
 install: $(OPENSSL)
 	install $(OPENSSL) $(INSTALL_DIR)
