@@ -3,6 +3,7 @@ use std::io::{IoResult, IoError, EndOfFile, Stream, Reader, Writer};
 use std::mem;
 use std::ptr;
 use std::string;
+use sync::Arc;
 use sync::one::{Once, ONCE_INIT};
 
 use bio::{MemBio};
@@ -398,9 +399,10 @@ enum LibSslError {
 }
 
 /// A stream wrapper which handles SSL encryption for an underlying stream.
+#[deriving(Clone)]
 pub struct SslStream<S> {
     stream: S,
-    ssl: Ssl,
+    ssl: Arc<Ssl>,
     buf: Vec<u8>
 }
 
@@ -408,7 +410,7 @@ impl<S: Stream> SslStream<S> {
     fn new_base(ssl:Ssl, stream: S) -> SslStream<S> {
         SslStream {
             stream: stream,
-            ssl: ssl,
+            ssl: Arc::new(ssl),
             // Maximum TLS record size is 16k
             buf: Vec::from_elem(16 * 1024, 0u8)
         }
@@ -440,7 +442,7 @@ impl<S: Stream> SslStream<S> {
     fn in_retry_wrapper(&mut self, blk: |&Ssl| -> c_int)
             -> Result<c_int, SslError> {
         loop {
-            let ret = blk(&self.ssl);
+            let ret = blk(&*self.ssl);
             if ret > 0 {
                 return Ok(ret);
             }
