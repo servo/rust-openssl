@@ -3,10 +3,23 @@ extern crate "pkg-config" as pkg_config;
 use std::os;
 
 fn main() {
-    if pkg_config::find_library("openssl").is_err() {
-        let mut flags = " -l crypto -l ssl".to_string();
+    let mut flags = " -l crypto -l ssl".to_string();
 
-        let target = os::getenv("TARGET").unwrap();
+    let target = os::getenv("TARGET").unwrap();
+
+    // Android doesn't have libcrypto/libssl,
+    // the toplevel Rust program should compile it themselves
+    if target.find_str("android").is_some() {
+        let path = os::getenv("OPENSSL_PATH").expect("Android does not provide openssl libraries, please \
+                                                      build them yourselves (instructions in the README) \
+                                                      and provide their location through $OPENSSL_PATH.");
+        //println!("Set OPENSSL path: {}", path)
+        flags.push_str(format!(" -L {}", path).as_slice());
+        println!("cargo:rustc-flags={}", flags);
+        return;
+    }
+        
+    if pkg_config::find_library("openssl").is_err() {
 
         let win_pos = target.find_str("windows")
                             .or(target.find_str("win32"))
@@ -18,15 +31,7 @@ fn main() {
            flags.push_str(" -l gdi32 -l wsock32");
         }
 
-        // Android doesn't have libcrypto/libssl,
-        // the toplevel Rust program should compile it themselves
-        if target.find_str("android").is_some() {
-            let path = os::getenv("OPENSSL_PATH").expect("Android does not provide openssl libraries, please \
-                                                          build them yourselves (instructions in the README) \
-                                                          and provide their location through $OPENSSL_PATH.");
-            println!("Set OPENSSL path: {}", path)
-            flags.push_str(format!(" -L {}", path).as_slice());
-        }
+
 
         println!("cargo:rustc-flags={}", flags);
     }
