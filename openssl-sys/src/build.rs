@@ -5,15 +5,13 @@ use std::io::process::StdioContainer::InheritFd;
 use std::os;
 
 fn main() {
-    let mut flags = " -l crypto -l ssl".to_string();
-
     let target = os::getenv("TARGET").unwrap();
 
     // Android doesn't have libcrypto/libssl,
     // the toplevel Rust program should compile it themselves
     if target.find_str("android").is_some() {
+        let mut flags = " -l crypto:static -l ssl:static".to_string();
         let in_dir = os::getenv("CARGO_MANIFEST_DIR").unwrap();
-
         Command::new("make").arg("-f")
                             .arg("makefile.android")
                             .stdin(InheritFd(0))
@@ -28,6 +26,8 @@ fn main() {
         println!("cargo:rustc-flags={}", flags);
         return;
     }
+
+    let mut flags = " -l crypto -l ssl".to_string();
 
     if pkg_config::find_library("openssl").is_err() {
 
