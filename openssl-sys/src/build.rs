@@ -1,5 +1,7 @@
 extern crate "pkg-config" as pkg_config;
 
+use std::io::Command;
+use std::io::process::StdioContainer::InheritFd;
 use std::os;
 
 fn main() {
@@ -10,15 +12,23 @@ fn main() {
     // Android doesn't have libcrypto/libssl,
     // the toplevel Rust program should compile it themselves
     if target.find_str("android").is_some() {
-        let path = os::getenv("OPENSSL_PATH").expect("Android does not provide openssl libraries, please \
-                                                      build them yourselves (instructions in the README) \
-                                                      and provide their location through $OPENSSL_PATH.");
-        //println!("Set OPENSSL path: {}", path)
+        let in_dir = os::getenv("CARGO_MANIFEST_DIR").unwrap();
+
+        Command::new("make").arg("-f")
+                            .arg("makefile.android")
+                            .stdin(InheritFd(0))
+                            .stdout(InheritFd(1))
+                            .stderr(InheritFd(2))
+                            .status().unwrap();
+
+        let path = format!("{}/openssl-1.0.1j", in_dir);
+        os::setenv("OPENSSL_PATH", path.as_slice());
+
         flags.push_str(format!(" -L {}", path).as_slice());
         println!("cargo:rustc-flags={}", flags);
         return;
     }
-        
+
     if pkg_config::find_library("openssl").is_err() {
 
         let win_pos = target.find_str("windows")
