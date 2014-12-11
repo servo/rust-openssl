@@ -2,8 +2,10 @@ use serialize::hex::FromHex;
 use std::io::{File, Open, Read};
 use std::io::util::NullWriter;
 
-use crypto::hash::{SHA256};
-use x509::{X509, X509Generator, DigitalSignature, KeyEncipherment, ClientAuth, ServerAuth};
+use crypto::hash::HashType::{SHA256};
+use x509::{X509, X509Generator};
+use x509::KeyUsage::{DigitalSignature, KeyEncipherment};
+use x509::ExtKeyUsage::{ClientAuth, ServerAuth};
 
 #[test]
 fn test_cert_gen() {
@@ -12,8 +14,8 @@ fn test_cert_gen() {
         .set_valid_period(365*2)
         .set_CN("test_me")
         .set_sign_hash(SHA256)
-        .set_usage([DigitalSignature, KeyEncipherment])
-        .set_ext_usage([ClientAuth, ServerAuth]);
+        .set_usage(&[DigitalSignature, KeyEncipherment])
+        .set_ext_usage(&[ClientAuth, ServerAuth]);
 
     let res = gen.generate();
     assert!(res.is_ok());
@@ -42,7 +44,7 @@ fn test_cert_loading() {
     // in DER format.
     // Command: openssl x509 -in test/cert.pem  -outform DER | openssl dgst -sha256
     // Please update if "test/cert.pem" will ever change
-    let hash_str = "6204f6617e1af7495394250655f43600cd483e2dfc2005e92d0fe439d0723c34";
+    let hash_str = "46e3f1a6d17a41ce70d0c66ef51cee2ab4ba67cac8940e23f10c1f944b49fb5c";
     let hash_vec = hash_str.from_hex().unwrap();
 
     assert_eq!(fingerprint.as_slice(), hash_vec.as_slice());

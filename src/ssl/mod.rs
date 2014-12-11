@@ -8,7 +8,7 @@ use sync::one::{Once, ONCE_INIT};
 use bio::{MemBio};
 use ffi;
 use ssl::error::{SslError, SslSessionClosed, StreamError};
-use x509::{X509StoreContext, X509FileType};
+use x509::{X509StoreContext, X509FileType, X509};
 
 pub mod error;
 #[cfg(test)]
@@ -56,14 +56,14 @@ impl SslMethod {
     unsafe fn to_raw(&self) -> *const ffi::SSL_METHOD {
         match *self {
             #[cfg(feature = "sslv2")]
-            Sslv2 => ffi::SSLv2_method(),
-            Sslv3 => ffi::SSLv3_method(),
-            Tlsv1 => ffi::TLSv1_method(),
-            Sslv23 => ffi::SSLv23_method(),
+            SslMethod::Sslv2 => ffi::SSLv2_method(),
+            SslMethod::Sslv3 => ffi::SSLv3_method(),
+            SslMethod::Tlsv1 => ffi::TLSv1_method(),
+            SslMethod::Sslv23 => ffi::SSLv23_method(),
             #[cfg(feature = "tlsv1_1")]
-            Tlsv1_1 => ffi::TLSv1_1_method(),
+            SslMethod::Tlsv1_1 => ffi::TLSv1_1_method(),
             #[cfg(feature = "tlsv1_2")]
-            Tlsv1_2 => ffi::TLSv1_2_method()
+            SslMethod::Tlsv1_2 => ffi::TLSv1_2_method()
         }
     }
 }
@@ -326,6 +326,10 @@ impl Ssl {
         unsafe { ffi::SSL_connect(self.ssl) }
     }
 
+    fn accept(&self) -> c_int {
+        unsafe { ffi::SSL_accept(self.ssl) }
+    }
+
     fn read(&self, buf: &mut [u8]) -> c_int {
         unsafe { ffi::SSL_read(self.ssl, buf.as_ptr() as *mut c_void,
                                buf.len() as c_int) }
@@ -366,6 +370,17 @@ impl Ssl {
         }
     }
 
+    pub fn get_peer_certificate(&self) -> Option<X509> {
+        unsafe {
+            let ptr = ffi::SSL_get_peer_certificate(self.ssl);
+            if ptr.is_null() {
+                None
+            } else {
+                Some(X509::new(ptr, true))
+            }
+        }
+    }
+
 }
 
 #[deriving(FromPrimitive)]
@@ -390,29 +405,36 @@ pub struct SslStream<S> {
 }
 
 impl<S: Stream> SslStream<S> {
-    /// Attempts to create a new SSL stream from a given `Ssl` instance.
-    pub fn new_from(ssl: Ssl, stream: S) -> Result<SslStream<S>, SslError> {
-        let mut ssl = SslStream {
+    fn new_base(ssl:Ssl, stream: S) -> SslStream<S> {
+        SslStream {
             stream: stream,
             ssl: ssl,
             // Maximum TLS record size is 16k
             buf: Vec::from_elem(16 * 1024, 0u8)
-        };
-
-        match ssl.in_retry_wrapper(|ssl| { ssl.connect() }) {
-            Ok(_) => Ok(ssl),
-            Err(err) => Err(err)
         }
+    }
+
+    pub fn new_server_from(ssl: Ssl, stream: S) -> Result<SslStream<S>, SslError> {
+        let mut ssl = SslStream::new_base(ssl, stream);
+        ssl.in_retry_wrapper(|ssl| { ssl.accept() }).and(Ok(ssl))
+    }
+
+    /// Attempts to create a new SSL stream from a given `Ssl` instance.
+    pub fn new_from(ssl: Ssl, stream: S) -> Result<SslStream<S>, SslError> {
+        let mut ssl = SslStream::new_base(ssl, stream);
+        ssl.in_retry_wrapper(|ssl| { ssl.connect() }).and(Ok(ssl))
     }
 
     /// Creates a new SSL stream
     pub fn new(ctx: &SslContext, stream: S) -> Result<SslStream<S>, SslError> {
-        let ssl = match Ssl::new(ctx) {
-            Ok(ssl) => ssl,
-            Err(err) => return Err(err)
-        };
-
+        let ssl = try!(Ssl::new(ctx));
         SslStream::new_from(ssl, stream)
+    }
+
+    /// Creates a new SSL server stream
+    pub fn new_server(ctx: &SslContext, stream: S) -> Result<SslStream<S>, SslError> {
+        let ssl = try!(Ssl::new(ctx));
+        SslStream::new_server_from(ssl, stream)
     }
 
     fn in_retry_wrapper(&mut self, blk: |&Ssl| -> c_int)
@@ -424,14 +446,14 @@ impl<S: Stream> SslStream<S> {
             }
 
             match self.ssl.get_error(ret) {
-                ErrorWantRead => {
+                LibSslError::ErrorWantRead => {
                     try_ssl_stream!(self.flush());
                     let len = try_ssl_stream!(self.stream.read(self.buf.as_mut_slice()));
                     self.ssl.get_rbio().write(self.buf.slice_to(len));
                 }
-                ErrorWantWrite => { try_ssl_stream!(self.flush()) }
-                ErrorZeroReturn => return Err(SslSessionClosed),
-                ErrorSsl => return Err(SslError::get()),
+                LibSslError::ErrorWantWrite => { try_ssl_stream!(self.flush()) }
+                LibSslError::ErrorZeroReturn => return Err(SslSessionClosed),
+                LibSslError::ErrorSsl => return Err(SslError::get()),
                 _ => unreachable!()
             }
         }

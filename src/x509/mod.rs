@@ -1,10 +1,11 @@
 use libc::{c_int, c_long, c_uint};
 use std::mem;
+use std::num::SignedInt;
 use std::ptr;
 
 use asn1::{Asn1Time};
 use bio::{MemBio};
-use crypto::hash::{HashType, evpmd, SHA1};
+use crypto::hash::{HashType, evpmd};
 use crypto::pkey::{PKey};
 use crypto::rand::rand_bytes;
 use ffi;
@@ -69,15 +70,15 @@ pub enum KeyUsage {
 impl AsStr<'static> for KeyUsage {
     fn as_str(&self) -> &'static str {
         match self {
-            &DigitalSignature => "digitalSignature",
-            &NonRepudiation => "nonRepudiation",
-            &KeyEncipherment => "keyEncipherment",
-            &DataEncipherment => "dataEncipherment",
-            &KeyAgreement => "keyAgreement",
-            &KeyCertSign => "keyCertSign",
-            &CRLSign => "cRLSign",
-            &EncipherOnly => "encipherOnly",
-            &DecipherOnly => "decipherOnly"
+            &KeyUsage::DigitalSignature => "digitalSignature",
+            &KeyUsage::NonRepudiation => "nonRepudiation",
+            &KeyUsage::KeyEncipherment => "keyEncipherment",
+            &KeyUsage::DataEncipherment => "dataEncipherment",
+            &KeyUsage::KeyAgreement => "keyAgreement",
+            &KeyUsage::KeyCertSign => "keyCertSign",
+            &KeyUsage::CRLSign => "cRLSign",
+            &KeyUsage::EncipherOnly => "encipherOnly",
+            &KeyUsage::DecipherOnly => "decipherOnly"
         }
     }
 }
@@ -101,17 +102,17 @@ pub enum ExtKeyUsage {
 impl AsStr<'static> for ExtKeyUsage {
     fn as_str(&self) -> &'static str {
         match self {
-            &ServerAuth => "serverAuth",
-            &ClientAuth => "clientAuth",
-            &CodeSigning => "codeSigning",
-            &EmailProtection => "emailProtection",
-            &TimeStamping => "timeStamping",
-            &MsCodeInd => "msCodeInd",
-            &MsCodeCom => "msCodeCom",
-            &MsCtlSign => "msCTLSign",
-            &MsSgc => "msSGC",
-            &MsEfs => "msEFS",
-            &NsSgc =>"nsSGC"
+            &ExtKeyUsage::ServerAuth => "serverAuth",
+            &ExtKeyUsage::ClientAuth => "clientAuth",
+            &ExtKeyUsage::CodeSigning => "codeSigning",
+            &ExtKeyUsage::EmailProtection => "emailProtection",
+            &ExtKeyUsage::TimeStamping => "timeStamping",
+            &ExtKeyUsage::MsCodeInd => "msCodeInd",
+            &ExtKeyUsage::MsCodeCom => "msCodeCom",
+            &ExtKeyUsage::MsCtlSign => "msCTLSign",
+            &ExtKeyUsage::MsSgc => "msSGC",
+            &ExtKeyUsage::MsEfs => "msEFS",
+            &ExtKeyUsage::NsSgc =>"nsSGC"
         }
     }
 }
@@ -152,7 +153,7 @@ impl<'a, T: AsStr<'a>> ToStr for Vec<T> {
 ///        .set_valid_period(365*2)
 ///        .set_CN("SuperMegaCorp Inc.")
 ///        .set_sign_hash(SHA256)
-///        .set_usage([DigitalSignature]);
+///        .set_usage(&[DigitalSignature]);
 ///
 /// let (cert, pkey) = gen.generate().unwrap();
 ///
@@ -192,7 +193,7 @@ impl X509Generator {
             CN: "rust-openssl".to_string(),
             key_usage: Vec::new(),
             ext_key_usage: Vec::new(),
-            hash_type: SHA1
+            hash_type: HashType::SHA1
         }
     }
 
@@ -270,7 +271,11 @@ impl X509Generator {
             res = res << 8;
             res |= (*b as c_long) & 0xff;
         }
-        res
+
+        // While OpenSSL is actually OK to have negative serials
+        // other libraries (for example, Go crypto) can drop
+        // such certificates as invalid
+        res.abs()
     }
 
     /// Generates a private key and a signed certificate and returns them
@@ -435,8 +440,8 @@ macro_rules! make_validation_error(
             pub fn from_raw(err: c_int) -> Option<X509ValidationError> {
                 match err {
                     ffi::$ok_val => None,
-                    $(ffi::$val => Some($name),)+
-                    err => Some(X509UnknownError(err))
+                    $(ffi::$val => Some(X509ValidationError::$name),)+
+                    err => Some(X509ValidationError::X509UnknownError(err))
                 }
             }
         }
@@ -498,3 +503,12 @@ make_validation_error!(X509_V_OK,
     X509CrlPathValidationError= X509_V_ERR_CRL_PATH_VALIDATION_ERROR,
     X509ApplicationVerification = X509_V_ERR_APPLICATION_VERIFICATION,
 )
+
+
+#[test]
+fn test_negative_serial() {
+    // I guess that's enough to get a random negative number
+    for _ in range(0u, 1000) {
+        assert!(X509Generator::random_serial() > 0, "All serials should be positive");
+    }
+}
